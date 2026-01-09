@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Security stack defining Security Groups and IAM role for EC2.
+  SSH is disabled; EC2 instances are managed via AWS Systems Manager (SSM).
+
+########################################
+# Parameters
+########################################
+Parameters:
+  ProjectName:
+    Type: String
+
+  Environment:
+    Type: String
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Default VPC ID
+
+########################################
+# Resources
+########################################
+Resources:
+
+  ######################################
+  # ALB Security Group
+  ######################################
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP traffic from the internet to ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-alb-sg"
+
+  ######################################
+  # EC2 Security Group
+  ######################################
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow traffic from ALB only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-ec2-sg"
+
+  ######################################
+  # IAM Role for EC2 (SSM)
+  ######################################
+  Ec2IamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-ec2-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  ######################################
+  # Instance Profile
+  ######################################
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${ProjectName}-${Environment}-instance-profile"
+      Roles:
+        - !Ref Ec2IamRole
+
+########################################
+# Outputs
+########################################
+Outputs:
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+
+  InstanceSecurityGroupId:
+    Value: !Ref InstanceSecurityGroup
+
+  Ec2InstanceProfileName:
+    Value: !Ref Ec2InstanceProfile

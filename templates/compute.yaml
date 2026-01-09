@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Compute stack for the EC2 Auto Scaling platform.
+  Creates a Launch Template, Auto Scaling Group,
+  and attaches instances to the ALB Target Group.
+  SSH is disabled; instances are managed via SSM.
+
+########################################
+# Parameters
+########################################
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name used for naming/tagging resources
+
+  Environment:
+    Type: String
+    Description: Deployment environment (dev or prod)
+
+  SubnetIds:
+    Type: String
+    Description: Comma-separated subnet IDs for the Auto Scaling Group
+
+  InstanceSecurityGroupId:
+    Type: String
+    Description: Security Group ID attached to EC2 instances
+
+  TargetGroupArn:
+    Type: String
+    Description: Target Group ARN to attach the ASG to the ALB
+
+  Ec2InstanceProfileName:
+    Type: String
+    Description: Instance profile name for EC2 (from security stack)
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+########################################
+# Resources
+########################################
+Resources:
+
+  ######################################
+  # Launch Template
+  ######################################
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${ProjectName}-${Environment}-lt"
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroupId
+        IamInstanceProfile:
+          Name: !Ref Ec2InstanceProfileName
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd
+            systemctl enable httpd
+            echo "<h1>EC2 Auto Scaling Platform - ${Environment}</h1>" > /var/www/html/index.html
+
+  ######################################
+  # Auto Scaling Group
+  ######################################
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Split [",", !Ref SubnetIds]
+      MinSize: "1"
+      MaxSize: "2"
+      DesiredCapacity: "1"
+      TargetGroupARNs:
+        - !Ref TargetGroupArn
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-ec2"
+          PropagateAtLaunch: true
+
+########################################
+# Outputs
+########################################
+Outputs:
+  AutoScalingGroupName:
+    Description: Name of the Auto Scaling Group
+    Value: !Ref AutoScalingGroup

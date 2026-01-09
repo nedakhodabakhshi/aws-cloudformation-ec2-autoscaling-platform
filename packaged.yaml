@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Parent CloudFormation stack that orchestrates nested stacks. IMPORTANT:\
+  \ Nested stack parameters MUST be strings.\n"
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name used for naming resources
+  Environment:
+    Type: String
+    AllowedValues:
+    - dev
+    - prod
+    Description: Deployment environment
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where resources will be created
+  SubnetIds:
+    Type: String
+    Description: Comma-separated subnet IDs (e.g. subnet-a,subnet-b)
+Resources:
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/cfn-artifacts-22305/ef973dd9ca3cd1fdb6d77996aff061ee.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        Environment:
+          Ref: Environment
+        VpcId:
+          Ref: VpcId
+  AlbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/cfn-artifacts-22305/4f1a2e2dee7d1618ecb0550f401c349c.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        Environment:
+          Ref: Environment
+        VpcId:
+          Ref: VpcId
+        SubnetIds:
+          Ref: SubnetIds
+        AlbSecurityGroupId:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.AlbSecurityGroupId
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/cfn-artifacts-22305/da63f0f7c2a1e052e408a3e1d4de637b.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        Environment:
+          Ref: Environment
+        SubnetIds:
+          Ref: SubnetIds
+        InstanceSecurityGroupId:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.InstanceSecurityGroupId
+        TargetGroupArn:
+          Fn::GetAtt:
+          - AlbStack
+          - Outputs.TargetGroupArn
+        Ec2InstanceProfileName:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.Ec2InstanceProfileName
+Outputs:
+  AlbDnsName:
+    Description: DNS name of the Application Load Balancer
+    Value:
+      Fn::GetAtt:
+      - AlbStack
+      - Outputs.AlbDnsName

@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Parent CloudFormation stack that orchestrates nested stacks.
+  IMPORTANT: Nested stack parameters MUST be strings.
+
+########################################
+# Parameters
+########################################
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Project name used for naming resources
+
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment environment
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where resources will be created
+
+  SubnetIds:
+    Type: String
+    Description: Comma-separated subnet IDs (e.g. subnet-a,subnet-b)
+
+########################################
+# Resources
+########################################
+Resources:
+
+  ######################################
+  # Security Stack
+  ######################################
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: security.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcId: !Ref VpcId
+
+  ######################################
+  # ALB Stack
+  ######################################
+  AlbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: alb.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcId: !Ref VpcId
+        SubnetIds: !Ref SubnetIds
+        AlbSecurityGroupId: !GetAtt SecurityStack.Outputs.AlbSecurityGroupId
+
+  ######################################
+  # Compute Stack (ASG + EC2)
+  ######################################
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: compute.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        SubnetIds: !Ref SubnetIds
+        InstanceSecurityGroupId: !GetAtt SecurityStack.Outputs.InstanceSecurityGroupId
+        TargetGroupArn: !GetAtt AlbStack.Outputs.TargetGroupArn
+        Ec2InstanceProfileName: !GetAtt SecurityStack.Outputs.Ec2InstanceProfileName
+
+########################################
+# Outputs
+########################################
+Outputs:
+  AlbDnsName:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt AlbStack.Outputs.AlbDnsName
